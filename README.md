@@ -149,3 +149,11 @@ python 马青公式计算圆周率.py
 gh run list --workflow sync-to-gitee.yml
 gh run view <run-id> --log
 ```
+
+## 许可证
+
+本项目基于 [MIT 许可证](LICENSE) 开源，可自由使用、修改、分发和商用，只需保留版权声明。
+
+```
+Copyright (c) 2026 王福洪
+```
