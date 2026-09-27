@@ -1,0 +1,1 @@
+print(print,print(1,print(888)))

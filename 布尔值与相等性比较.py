@@ -1,0 +1,8 @@
+print(bool([]))
+print([]==False)
+print(1==1.0)
+print([]==())
+print(bool([0]))
+print([0]==(0))
+print(bool({}))
+print({}==False)
