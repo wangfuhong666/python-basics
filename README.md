@@ -123,3 +123,26 @@ python 马青公式计算圆周率.py
 - 本仓库是个人练习记录，命名和注释都比较随意，部分文件只有一个知识点，属正常现象。
 - `数据库与python交互.py` 中使用的是本机 MySQL 的默认账号口令（`root` / `root`，`127.0.0.1`），直接运行前请改成你自己的配置；更好的做法是改用环境变量读取，不要把口令写进代码。
 - 仓库里的 `.gitignore` 已屏蔽 `__pycache__`、虚拟环境与 IDE 目录，克隆后无需清理缓存文件。
+
+## 自动同步（GitHub ↔ Gitee）
+
+本仓库在 GitHub 和 Gitee 各有一份，靠 GitHub Actions 双向保持一致：
+
+| 方向 | 工作流 | 触发时机 |
+| --- | --- | --- |
+| GitHub → Gitee | `.github/workflows/sync-to-gitee.yml` | 每次推送到 `main`（也可手动触发） |
+| Gitee → GitHub | `.github/workflows/sync-from-gitee.yml` | 每 6 小时检查一次（也可手动触发） |
+
+设计要点：
+
+- **只做快进（fast-forward）同步，从不 `force push`。** 如果两端出现了互不包含的提交，工作流会直接失败并在日志里说明，而不是悄悄覆盖掉另一边的代码。
+- GitHub → Gitee 依赖仓库 secret `GITEE_TOKEN`（Gitee 私人令牌，需 `projects` 权限）。令牌被撤销或过期后，同步会在日志里明确报错。
+- 日常本地提交时，`git push` 会通过一个 remote 上的两个 push 地址同时推到两端，不依赖 Actions；Actions 主要负责兜底「在网页上直接改代码」的情况。
+- 定时工作流在仓库连续 60 天无活动后会被 GitHub 自动暂停，需要去 Actions 页面手动重新启用。
+
+排查同步问题：
+
+```bash
+gh run list --workflow sync-to-gitee.yml
+gh run view <run-id> --log
+```
