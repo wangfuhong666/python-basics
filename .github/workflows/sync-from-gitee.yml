@@ -1,0 +1,58 @@
+name: Sync from Gitee
+
+# 反向同步：定时从 Gitee 快进拉取提交到 GitHub。
+# 用途是覆盖「直接在 Gitee 网页上改代码」的情况。
+# 同样只做快进：一旦两端分叉（各自有对方没有的提交），本工作流报错退出而不是覆盖。
+on:
+  schedule:
+    # 每 6 小时检查一次（UTC 时间；避开整点以减少 GitHub 排队）
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-from-gitee
+  cancel-in-progress: false
+
+env:
+  GITEE_USER: wang_fuhong
+  GITEE_REPO: python-basics
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 从 Gitee 快进拉取
+        run: |
+          set -euo pipefail
+          git remote add gitee "https://gitee.com/${GITEE_USER}/${GITEE_REPO}.git"
+          git fetch gitee main --tags
+
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse gitee/main)" ]; then
+            echo "✅ 两端已经一致，无需同步"
+            exit 0
+          fi
+
+          if git merge-base --is-ancestor HEAD gitee/main; then
+            # GitHub 落后于 Gitee → 快进，没有冲突风险
+            echo "GitHub 落后于 Gitee，开始快进合并"
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git merge --ff-only gitee/main
+            git push origin HEAD:main
+            git push origin --tags || true
+            echo "✅ 已从 Gitee 同步到 GitHub"
+          elif git merge-base --is-ancestor gitee/main HEAD; then
+            echo "✅ GitHub 不落后（本地领先或已一致），无需拉取"
+          else
+            echo "::error::两端历史已分叉：GitHub 和 Gitee 各自有对方没有的提交。"
+            echo "::error::请手动比对两边 commits 后再决定保留哪一份，本工作流不会替你覆盖。"
+            exit 1
+          fi

@@ -1,0 +1,62 @@
+name: Sync to Gitee
+
+# 把 GitHub 上的新提交自动同步到 Gitee。
+# 只做快进（fast-forward）推送：如果 Gitee 上存在 GitHub 没有的提交，
+# 本工作流会失败并给出提示，而不是强行覆盖 Gitee，避免静默丢代码。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 避免多次推送时并发执行导致互相干扰
+concurrency:
+  group: sync-to-gitee
+  cancel-in-progress: false
+
+env:
+  GITEE_USER: wang_fuhong
+  GITEE_REPO: python-basics
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码（需要完整历史才能正确推送）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 推送到 Gitee
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITEE_TOKEN}" ]; then
+            echo "::error::仓库未配置 GITEE_TOKEN secret，无法同步到 Gitee。"
+            echo "::error::请在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加 GITEE_TOKEN（Gitee 私人令牌，需 projects 权限）。"
+            exit 1
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add gitee "https://${GITEE_USER}:${GITEE_TOKEN}@gitee.com/${GITEE_USER}/${GITEE_REPO}.git"
+
+          # main 分支快进推送
+          if git push gitee "HEAD:refs/heads/main"; then
+            echo "✅ main 分支已同步到 Gitee"
+          else
+            echo "::error::推送到 Gitee 失败（很可能是两端历史已分叉）。"
+            echo "::error::请先手动确认哪一边是最新的，把两边对齐后再重新推送，不要直接 force push。"
+            exit 1
+          fi
+
+          # 标签同步（没有标签时该命令不会报错）
+          git push gitee --tags || echo "标签同步被跳过"
+
+      - name: 输出同步结果
+        if: always()
+        run: echo "尝试同步的提交：${{ github.sha }}（来自 ${{ github.repository }}）"
