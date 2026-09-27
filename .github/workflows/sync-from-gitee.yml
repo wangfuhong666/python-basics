@@ -1,12 +1,12 @@
 name: Sync from Gitee
 
-# 反向同步：定时从 Gitee 快进拉取提交到 GitHub。
-# 用途是覆盖「直接在 Gitee 网页上改代码」的情况。
-# 同样只做快进：一旦两端分叉（各自有对方没有的提交），本工作流报错退出而不是覆盖。
+# 反向同步：定时把 Gitee 上领先的分支快进拉取回 GitHub。
+# 用途是覆盖「直接在 Gitee 网页上改代码 / 在 Gitee 上建分支」的情况。
+# 同样只做快进，绝不 force push；两端分叉时点名是哪个分支并让工作流失败。
 on:
   schedule:
-    # 每 6 小时检查一次（UTC 时间；避开整点以减少 GitHub 排队）
-    - cron: '23 */6 * * *'
+    # 每 15 分钟检查一次（GitHub 的高峰期可能略有延迟）
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -24,35 +24,41 @@ jobs:
   pull:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出代码
+      - name: 检出全部历史（含所有分支与标签）
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: 从 Gitee 快进拉取
+      - name: 把 Gitee 上领先的分支快进同步回 GitHub
         run: |
-          set -euo pipefail
+          set -uo pipefail
+
           git remote add gitee "https://gitee.com/${GITEE_USER}/${GITEE_REPO}.git"
-          git fetch gitee main --tags
+          git fetch gitee "+refs/heads/*:refs/remotes/gitee/*" --tags --prune
 
-          if [ "$(git rev-parse HEAD)" = "$(git rev-parse gitee/main)" ]; then
-            echo "✅ 两端已经一致，无需同步"
-            exit 0
-          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if git merge-base --is-ancestor HEAD gitee/main; then
-            # GitHub 落后于 Gitee → 快进，没有冲突风险
-            echo "GitHub 落后于 Gitee，开始快进合并"
-            git config user.name  "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git merge --ff-only gitee/main
-            git push origin HEAD:main
-            git push origin --tags || true
-            echo "✅ 已从 Gitee 同步到 GitHub"
-          elif git merge-base --is-ancestor gitee/main HEAD; then
-            echo "✅ GitHub 不落后（本地领先或已一致），无需拉取"
-          else
-            echo "::error::两端历史已分叉：GitHub 和 Gitee 各自有对方没有的提交。"
-            echo "::error::请手动比对两边 commits 后再决定保留哪一份，本工作流不会替你覆盖。"
-            exit 1
-          fi
+          failed=0
+          for br in $(git for-each-ref --format='%(refname:strip=3)' refs/remotes/gitee | grep -vx 'HEAD' || true); do
+            echo "::group::分支 ${br}"
+            gitee_sha="$(git rev-parse "refs/remotes/gitee/${br}")"
+
+            if ! git rev-parse --verify --quiet "refs/remotes/origin/${br}" >/dev/null; then
+              echo "GitHub 上还没有 ${br}，创建该分支"
+              git push origin "refs/remotes/gitee/${br}:refs/heads/${br}" || failed=1
+            elif [ "${gitee_sha}" = "$(git rev-parse "refs/remotes/origin/${br}")" ]; then
+              echo "✅ ${br} 两端已一致"
+            elif git merge-base --is-ancestor "refs/remotes/origin/${br}" "${gitee_sha}"; then
+              echo "GitHub 落后于 Gitee，快进推送 ${br}"
+              git push origin "refs/remotes/gitee/${br}:refs/heads/${br}" || failed=1
+            elif git merge-base --is-ancestor "${gitee_sha}" "refs/remotes/origin/${br}"; then
+              echo "✅ ${br} GitHub 领先（会由 Sync to Gitee 推过去）"
+            else
+              echo "::error::分支 ${br} 两端已分叉，本工作流不会覆盖任何一边，请手动对齐。"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+
+          exit ${failed}

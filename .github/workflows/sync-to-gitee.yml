@@ -1,17 +1,16 @@
 name: Sync to Gitee
 
-# 把 GitHub 上的新提交自动同步到 Gitee。
-# 只做快进（fast-forward）推送：如果 Gitee 上存在 GitHub 没有的提交，
-# 本工作流会失败并给出提示，而不是强行覆盖 Gitee，避免静默丢代码。
+# 把 GitHub 上的提交自动同步到 Gitee。
+# 覆盖所有分支与标签，但只做快进（fast-forward）推送：
+# 某个分支如果在两端已分叉，本工作流会失败并点名是哪个分支，而不是 force push 覆盖。
 on:
   push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# 避免多次推送时并发执行导致互相干扰
+# 同一时间只跑一个同步任务，避免多次推送互相干扰
 concurrency:
   group: sync-to-gitee
   cancel-in-progress: false
@@ -24,39 +23,42 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出代码（需要完整历史才能正确推送）
+      - name: 检出全部历史（含所有分支与标签）
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: 推送到 Gitee
+      - name: 把所有分支与标签推送到 Gitee
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          if [ -z "${GITEE_TOKEN}" ]; then
+          set -uo pipefail
+
+          if [ -z "${GITEE_TOKEN:-}" ]; then
             echo "::error::仓库未配置 GITEE_TOKEN secret，无法同步到 Gitee。"
             echo "::error::请在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加 GITEE_TOKEN（Gitee 私人令牌，需 projects 权限）。"
             exit 1
           fi
 
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git remote add gitee "https://${GITEE_USER}:${GITEE_TOKEN}@gitee.com/${GITEE_USER}/${GITEE_REPO}.git"
 
-          # main 分支快进推送
-          if git push gitee "HEAD:refs/heads/main"; then
-            echo "✅ main 分支已同步到 Gitee"
+          failed=0
+          # 逐个分支做快进推送：不存在则创建，已最新则自动跳过，分叉则报错
+          for br in $(git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin | grep -vx 'HEAD' || true); do
+            echo "::group::分支 ${br}"
+            if git push gitee "refs/remotes/origin/${br}:refs/heads/${br}"; then
+              echo "✅ ${br} 已同步到 Gitee"
+            else
+              echo "::error::分支 ${br} 推送失败：两端历史可能已分叉，本工作流不会 force push 覆盖。"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+
+          if git push gitee --tags; then
+            echo "✅ 标签已同步"
           else
-            echo "::error::推送到 Gitee 失败（很可能是两端历史已分叉）。"
-            echo "::error::请先手动确认哪一边是最新的，把两边对齐后再重新推送，不要直接 force push。"
-            exit 1
+            echo "::warning::标签同步未完全成功（不影响分支同步结果）"
           fi
 
-          # 标签同步（没有标签时该命令不会报错）
-          git push gitee --tags || echo "标签同步被跳过"
-
-      - name: 输出同步结果
-        if: always()
-        run: echo "尝试同步的提交：${{ github.sha }}（来自 ${{ github.repository }}）"
+          exit ${failed}

@@ -126,18 +126,21 @@ python 马青公式计算圆周率.py
 
 ## 自动同步（GitHub ↔ Gitee）
 
-本仓库在 GitHub 和 Gitee 各有一份，靠 GitHub Actions 双向保持一致：
+本仓库在 GitHub 和 Gitee 各有一份，靠 GitHub Actions 双向保持一致，**所有分支和标签都会同步**：
 
-| 方向 | 工作流 | 触发时机 |
-| --- | --- | --- |
-| GitHub → Gitee | `.github/workflows/sync-to-gitee.yml` | 每次推送到 `main`（也可手动触发） |
-| Gitee → GitHub | `.github/workflows/sync-from-gitee.yml` | 每 6 小时检查一次（也可手动触发） |
+| 方向 | 工作流 | 触发时机 | 生效速度 |
+| --- | --- | --- | --- |
+| GitHub → Gitee | `.github/workflows/sync-to-gitee.yml` | 任意分支的 push（也可手动触发） | 约 1 分钟内 |
+| Gitee → GitHub | `.github/workflows/sync-from-gitee.yml` | 每 15 分钟检查一次（也可手动触发） | 最长约 15 分钟 |
+
+所以**只往一端提交就够了**，另一端会自动跟上；往 Gitee 提交时，GitHub 侧最长慢 15 分钟。
 
 设计要点：
 
-- **只做快进（fast-forward）同步，从不 `force push`。** 如果两端出现了互不包含的提交，工作流会直接失败并在日志里说明，而不是悄悄覆盖掉另一边的代码。
+- **只做快进（fast-forward）同步，从不 `force push`。** 某个分支如果在两端已经分叉，工作流会失败并点名是哪个分支，而不是悄悄覆盖掉另一边的代码；此时需要手动对齐。
+- **分支删除不会自动传播**：在一边删掉的分支，另一边会保留，需要两边都手动删（刻意为之，避免误删）。
 - GitHub → Gitee 依赖仓库 secret `GITEE_TOKEN`（Gitee 私人令牌，需 `projects` 权限）。令牌被撤销或过期后，同步会在日志里明确报错。
-- 日常本地提交时，`git push` 会通过一个 remote 上的两个 push 地址同时推到两端，不依赖 Actions；Actions 主要负责兜底「在网页上直接改代码」的情况。
+- 日常本地提交时，`git push` 会通过一个 remote 上的两个 push 地址**同时**推到两端（瞬时，不依赖 Actions）；Actions 主要负责兜底「在网页上直接改代码」的情况。
 - 定时工作流在仓库连续 60 天无活动后会被 GitHub 自动暂停，需要去 Actions 页面手动重新启用。
 
 排查同步问题：
