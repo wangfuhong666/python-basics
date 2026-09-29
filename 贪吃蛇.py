@@ -1,1 +1,1 @@
-import 好 pygame
+import  pygame

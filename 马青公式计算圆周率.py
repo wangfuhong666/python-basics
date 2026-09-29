@@ -2,16 +2,12 @@ from decimal import Decimal, getcontext
 
 
 def calculate_pi(precision=300):
-    """
-    用马青公式计算高精度π值
-    precision: 保留的小数位数（默认300位）
-    """
-    # 设置计算精度（需要比目标精度高一些，避免截断误差）
+
+
     getcontext().prec = precision + 10  # 额外加10位确保精度
 
-    # 马青公式：π = 16*arctan(1/5) - 4*arctan(1/239)
+
     def arctan(x):
-        """用泰勒级数计算 arctan(x) 的高精度值"""
         result = x
         term = x
         n = 1
